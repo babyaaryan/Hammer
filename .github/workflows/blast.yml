@@ -17,6 +17,9 @@ on:
       vus:
         description: 'Virtual users per runner'
         default: '2000'
+      pool:
+        description: 'Distinct login users to pre-create per runner (avoids single-account lockout)'
+        default: '300'
       duration:
         description: 'Run length, then auto-stops (e.g. 30m, 10m)'
         default: '30m'
@@ -71,6 +74,7 @@ jobs:
           VUS: ${{ github.event.inputs.vus }}
           DURATION: ${{ github.event.inputs.duration }}
           THINK: ${{ github.event.inputs.think }}
+          POOL: ${{ github.event.inputs.pool }}
           KC_BASE: https://stage.evidnt.io
           KC_REALM: tongadive
           KC_CLIENT_ID: login
