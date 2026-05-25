@@ -1,0 +1,85 @@
+name: blast
+
+# Manual only. No schedule => no overlapping runs that cancel each other.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'What to blast'
+        type: choice
+        options:
+          - keycloak-login
+          - tongadive-pages
+        default: keycloak-login
+      shards:
+        description: 'Parallel runners = distinct source IPs (Pro allows ~40 concurrent jobs)'
+        default: '20'
+      vus:
+        description: 'Virtual users per runner'
+        default: '2000'
+      duration:
+        description: 'Run length, then auto-stops (e.g. 30m, 10m)'
+        default: '30m'
+      think:
+        description: 'Seconds between iterations per VU (0 = max throughput)'
+        default: '0'
+
+# Unique group per run so a new dispatch NEVER cancels a running one.
+concurrency:
+  group: blast-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Build the shard matrix dynamically from the `shards` input.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - id: gen
+        run: |
+          n="${{ github.event.inputs.shards }}"
+          arr=$(seq 1 "$n" | jq -R . | jq -cs .)
+          echo "matrix=$arr" >> "$GITHUB_OUTPUT"
+          echo "shards: $arr"
+
+  blast:
+    needs: setup
+    name: shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    # Hard ceiling so nothing can run away even if a step hangs.
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 40
+      matrix:
+        shard: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz \
+            | tar -xz --strip-components=1 -C /usr/local/bin k6-v0.56.0-linux-amd64/k6
+          k6 version
+
+      - name: Blast (${{ github.event.inputs.target }})
+        env:
+          VUS: ${{ github.event.inputs.vus }}
+          DURATION: ${{ github.event.inputs.duration }}
+          THINK: ${{ github.event.inputs.think }}
+          KC_BASE: https://stage.evidnt.io
+          KC_REALM: tongadive
+          KC_CLIENT_ID: login
+          KC_USER: ${{ secrets.KC_USER }}
+          KC_PASS: ${{ secrets.KC_PASS }}
+        run: |
+          echo "shard ${{ matrix.shard }} | target=${{ github.event.inputs.target }} | VUS=$VUS DURATION=$DURATION THINK=$THINK"
+          if [ "${{ github.event.inputs.target }}" = "tongadive-pages" ]; then
+            k6 run k6/tongadive.js
+          else
+            k6 run k6/login-blast.js
+          fi
