@@ -56,7 +56,10 @@ export default function () {
     'access_token': (r) => { try { return !!JSON.parse(r.body).access_token; } catch { return false; } },
   });
   if (good) { ok.add(1); rate.add(true); }
-  else { bad.add(1); rate.add(false); }
+  else {
+    bad.add(1); rate.add(false);
+    if (__ITER < 3) console.log(`FAIL[${res.status}] ${String(res.body).slice(0, 220)}`);
+  }
 
   if (THINK > 0) sleep(THINK);
 }
